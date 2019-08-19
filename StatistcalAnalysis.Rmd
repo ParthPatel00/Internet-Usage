@@ -1,0 +1,394 @@
+---
+title: "FinalProject"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+
+THIS CODE LOADS ALL THE LIBRARIES
+WARNING: ALL THESE LIBRARIES MUST BE INSTALLED BEFORE LOADING THEM
+```{r}
+library (tidyverse)
+library (knitr)
+library (dplyr)
+library (rpart)
+library (partykit)
+library (maps)
+library (readr)
+library (rvest)
+```
+
+
+
+
+
+THIS CODE LOADS SOME OF THE DATA SETS
+```{r}
+path <- "https://raw.githubusercontent.com/ntaback/UofT_STA130/master/Fall2018/Finalproject/"
+
+democracyindex2017 <- read_csv(paste0(path,"democracyindex2017.csv"))
+education_cia2017 <- read_csv(paste0(path,"education_cia2017.csv"))
+gdpppp_cia2017 <- read_csv(paste0(path,"gdpppp_cia2017.csv"))
+lifeexpect_cia2017 <- read_csv(paste0(path,"lifeexpect_cia2017.csv"))
+healthexpend_cia2017 <- read_csv(paste0(path,"healthexpend_cia2017.csv"))
+internetusers_cia2017 <- read_csv(paste0(path,"internetusers_cia2017.csv"))
+telephonelines_cia2017 <- read_csv(paste0(path,"telephonelines_cia2017.csv"))
+population_cia2017 <- read_csv(paste0(path,"population_cia2017.csv"))
+world_regions <- read_csv(paste0(path,"world_regions.csv"))
+```
+
+THIS CODE LOADS THE OPTIONAL DATA SETS
+```{r}
+get_CIAWFB_data <- function(table_url){
+  library(rvest)
+  dat <- xml2::read_html(table_url) %>% rvest::html_table()
+  dat[[1]]
+}
+medianage_cia2017 <- get_CIAWFB_data("https://www.cia.gov/library/publications/resources/the-world-factbook/rankorder/2177rank.html")
+
+```
+
+
+
+
+Internet users world-wide geopgraphical area mapping 
+```{r}
+world <- map_data("world") 
+
+#nternetusers_cia2017 <- read_csv("internetusers_cia2017.csv")
+
+iu <- internetusers_cia2017 %>% rename(region = Country) 
+
+iu$region[4] <- "USA" # to match world map data
+
+iu <- semi_join(iu, world, by = "region") #only keep countries according to world map data
+
+# code below is modified from 
+# https://stackoverflow.com/questions/29614972/ggplot-us-state-map-colors-are-fine-polygons-jagged-r
+gg <- ggplot()
+
+gg <- gg + geom_map(
+  data = world,
+  map = world,
+  aes(x = long, y = lat, map_id = region),
+  fill = "#ffffff",
+  color = "#ffffff",
+  size = 0.20
+  )
+  
+  gg <- gg + geom_map(
+  data = iu,
+  map = world,
+  aes(fill = `INTERNET USERS`, map_id = region),
+  color = "#ffffff",
+  size = 0.15
+  )
+  
+  gg <- gg + scale_fill_continuous(low = 'thistle2', high = 'darkblue',
+  guide = 'colorbar')
+  gg	
+```
+
+
+CALCULATE THE PERCENTAGE OF PEOPLE WHO ARE INTERNET USERS
+```{r}
+internet_population <- inner_join(internetusers_cia2017, population_cia2017, by = "Country")
+internet_population <- internet_population %>%
+  mutate(percentage = round((`INTERNET USERS`/POPULATION)*100))
+internet_population$Rank.y <- NULL
+internet_population$`Date of Information.x` <- NULL
+internet_population$`Date of Information.y` <- NULL
+```
+
+
+
+IS THERE A RELATIONSHIP BETWEEN GDP AND PERCENTAGE OF PEOPLE WHO USE INTERNET?
+```{r}
+gdp_internetuser <- inner_join(gdpppp_cia2017,internet_population, by = "Country")
+gdp_internetuser$Rank.x<- NULL
+gdp_internetuser$`Date of Information`<- NULL
+
+gdp_internetuser <- gdp_internetuser %>%
+  mutate (money = parse_number(`GDP - PER CAPITA (PPP)`))
+gdp_internetuser$`GDP - PER CAPITA (PPP)`<- NULL
+
+ggplot (data = gdp_internetuser, aes(x = money, y = percentage)) + geom_point() + stat_smooth(method = "lm", colour = "Red", se = FALSE) + ylim(0,100) + xlab("GDP of Country ($)") + ylab("Percentage of Population Using Interent (%)") + labs(title = "Percentage of Population Using Internet vs GDP of Country")
+
+```
+
+
+IS THERE A RELATIONSHIP BETWEEN MEDIAN AGE OF COUNTRY AND PERCENTAGE OF PEOPLE WHO USE INTERNET?
+```{r}
+medianage_percentage <- inner_join(medianage_cia2017,internet_population, by = "Country")
+medianage_percentage$`Date of Information`<- NULL
+medianage_percentage$Rank.x<- NULL
+
+ggplot (data = medianage_percentage, aes(x = `MEDIAN AGE`, y = percentage)) + geom_point() + stat_smooth(method = "lm", colour = "Red", se = FALSE) + ylim(0,100) + xlab("Median Age of Country (years)") + ylab("Percentage of Population Using Interent (%)") + labs(title = "Percentage of Population using Internet vs Median Age of Country")
+```
+
+COMBINE HEALTH AND EDUCATION EXPENDITURES. ANALYZE THE DATA BY COMPARING IT WITH PERCENTAGE. (No relationship found)
+```{r}
+education_health <- inner_join(education_cia2017, healthexpend_cia2017, by = "Country")
+
+education_health$Rank.y <- NULL
+education_health$`Date of Information.x` <- NULL
+education_health$`Date of Information.y` <- NULL
+education_health <- education_health %>%
+  mutate(`Total expenditure` = `(% OF GDP).x` + `(% OF GDP).y`)
+expenditure_percentage <- inner_join(education_health, internet_population, by = "Country")
+expenditure_percentage$Rank.x.y <- NULL
+
+ggplot(data = expenditure_percentage, aes(x = `(% OF GDP).x`, y = percentage)) + geom_point() + stat_smooth(method = "lm", colour = "Red", se = TRUE) + ylim(0,100) + xlab("Medical Expenditures") + ylab("Percentage of population using interent (%)") + labs(title = "Percentage of population using internet vs Medical Expenditures")
+
+ggplot(data = expenditure_percentage, aes(x = `(% OF GDP).y`, y = percentage)) + geom_point() + stat_smooth(method = "lm", colour = "Red", se = TRUE) + ylim(0,100) + xlab("Health Expenditures") + ylab("Percentage of population using interent (%)") + labs(title = "Percentage of population using internet vs Health Expenditures") 
+```
+HEALTH SUBSETS
+```{r}
+health_percentage <- inner_join(healthexpend_cia2017, internet_population, by = "Country")
+
+health_percentage <- health_percentage %>%
+  mutate(group = ifelse(`(% OF GDP)` < 17.1/3, '1',ifelse(`(% OF GDP)` >= 17.1/3 & `(% OF GDP)` < (17.1*2)/3, '2','3')))
+
+health_percentage <- health_percentage %>%
+  group_by(group) %>%
+  select (`(% OF GDP)`, Country, group, percentage)
+
+health_gdp_1 <- health_percentage %>%
+  filter(group == '1') %>%
+  select (`(% OF GDP)`, group, percentage)
+
+health_gdp_2 <- health_percentage %>%
+  filter(group == '2') %>%
+  select (`(% OF GDP)`, group, percentage)
+
+health_gdp_3 <- health_percentage %>%
+  filter(group == '3') %>%
+  select (`(% OF GDP)`, group, percentage)
+
+
+ggplot(data = health_gdp_1, aes(x = `(% OF GDP)`, y = percentage)) + geom_point() + stat_smooth(method = "lm", colour = "Red") + labs(x = "GDP spent Health Expenditure (%)", y = "Percentage of Population Using Internet (%)", title = "Percentage of Population Using Internet vs GDP <= 5.7")
+ggplot(data = health_gdp_2, aes(x = `(% OF GDP)`, y = percentage)) + geom_point() + stat_smooth(method = "lm", colour = "Red")+ labs(x = "GDP spent Health Expenditure (%)", y = "Percentage of Population Using Internet (%)", title = "Percentage of Population Using Internet vs GDP > 5.7 and <= 11.4")
+ggplot(data = health_gdp_3, aes(x = `(% OF GDP)`, y = percentage)) + geom_point() + stat_smooth(method = "lm", colour = "Red")+ labs(x = "GDP spent Health Expenditure (%)", y = "Percentage of Population Using Internet (%)", title = "Percentage of Population Using Internet vs GDP > 11.4")
+
+```
+
+
+
+EDUCATION SUBSETS
+```{r}
+expenditure_percentage <- expenditure_percentage %>%
+  mutate(group = ifelse(`(% OF GDP).x` <= 4.3, '1',ifelse(`(% OF GDP).x` > 4.3 & `(% OF GDP).x` < 8.6, '2', '3')))
+
+education_gdp_1 <- expenditure_percentage %>%
+  filter(group == '1') %>%
+  select (`(% OF GDP).x`, group, percentage)
+ggplot(data = education_gdp_1, aes(x = `(% OF GDP).x`, y = percentage)) + geom_point() + stat_smooth(method = "lm", colour = "Red") + ylim(0,100) + xlab("GDP <= 4.3") + ylab("Percentage of population using internet (%)") + labs(title = "Percentage of population using internet vs GDP <= 4.3")
+
+education_gdp_2 <- expenditure_percentage %>%
+  filter(group == '2') %>%
+  select (`(% OF GDP).x`, group, percentage)
+ggplot(data = education_gdp_2, aes(x = `(% OF GDP).x`, y = percentage)) + geom_point() + stat_smooth(method = "lm", colour = "Red") + ylim(0,100) + xlab("4.3 < GDP < 8.6") + ylab("Percentage of population using internet (%)") + labs(title = "Percentage of population using internet vs 4.3 < GDP < 8.6")
+
+education_gdp_3 <- expenditure_percentage %>%
+  filter(group == '3') %>%
+  select (`(% OF GDP).x`, group, percentage)
+ggplot(data = education_gdp_3, aes(x = `(% OF GDP).x`, y = percentage)) + geom_point() + stat_smooth(method = "lm", colour = "Red") + ylim(0,100) + xlab("GDP >= 8.6") + ylab("Percentage of population using internet (%)") + labs(title = "Percentage of population using internet vs GDP >= 8.6")
+
+```
+
+
+
+
+Create a boxplot by linking different groups of democracy scores to percentage.
+```{r}
+democracy_percentage <- inner_join(democracyindex2017, internet_population, by = "Country")
+democracy_percentage <- democracy_percentage %>%
+  mutate (`Democracy Score` = parse_number(Score))
+
+democracy_percentage <- democracy_percentage %>%
+  mutate(group = ifelse(`Democracy Score` < 2.5, '1 - Very Low Score',ifelse(`Democracy Score` >= 2.5 & `Democracy Score` < 5, '2 - Low Score', ifelse(`Democracy Score` >= 5 & `Democracy Score` < 7.5, '3 - High  Score', '4 - Very High Score'))))
+
+democracy_percentage <- democracy_percentage %>%
+  group_by(group) %>%
+  select (`Democracy Score`, Country, group)
+
+# Combine democracy_percentage with internet_population and create a box plot
+democracy_whisker <- inner_join(democracy_percentage, internet_population, by = "Country")
+
+ggplot(data = democracy_whisker, aes(x = group, y = percentage, color = group)) + geom_boxplot() + labs(x = "Categories of Democracy Scores", y = "Percentage of People Using Internet", title = "Relationship between Percentage of People Using Internet and Categories of Democracy Scores")
+```
+GEOGRAPHICAL MAPPING OF INTERNET USAGE
+```{r}
+globe <- map_data("world") 
+
+#internetusers_cia2017 <- read_csv("internetusers_cia2017.csv")
+
+in_per <- internet_population %>% rename(region = Country) 
+
+in_per$region[4] <- "USA" # to match world map data
+
+in_per <- semi_join(in_per, globe, by = "region") #only keep countries according to world map data
+
+# code below is modified from 
+# https://stackoverflow.com/questions/29614972/ggplot-us-state-map-colors-are-fine-polygons-jagged-r
+gg <- ggplot()
+
+gg <- gg + geom_map(
+  data = globe,
+  map = globe,
+  aes(x = long, y = lat, map_id = region),
+  fill = "#ffffff",
+  color = "#ffffff",
+  size = 0.20
+  )
+  
+  gg <- gg + geom_map(
+  data = in_per,
+  map = globe,
+  aes(fill = percentage, map_id = region),
+  color = "#ffffff",
+  size = 0.15
+  )
+  
+  gg <- gg + scale_fill_continuous(low = 'lightgreen', high = 'darkgreen',
+  guide = 'colorbar') + labs(x = "Latitude", y = "Longitude", title = "Worldwide geographical representation of Internet Usage")
+  gg	
+```
+
+Percentile bootstrap method on percentage of internet users
+Note: 500 Replciations have been used instead of 5000 to reduce run time
+```{r}
+PER <- internet_population %>% filter(is.na(percentage) == FALSE & percentage<= 100)
+
+# Take a 25% sample of the original data
+sample25 <- PER %>% sample_n(size = 25)
+
+sample_means <- rep(NA, 500)
+for (i in 1:500){
+  sample25 <- PER %>% sample_n(size = 25)
+  sample_means[i] <- as.numeric(sample25 %>%
+                                  summarize(mean(percentage)))
+}
+sample_means <- data_frame(mean_percentage = sample_means)
+
+ggplot(data = sample_means, aes(x = mean_percentage)) + geom_histogram(bins= 20, colour = "Black", fill = "Green") + labs(x = "Means from sample size of 25", title = "Sampling Distribution for the Mean Percentage of Population Using Internet")
+
+observed_data <- PER %>% sample_n(size = 200, replace = FALSE)
+observed_mean <- as.numeric(observed_data %>%
+                              summarize (mean(percentage)))
+
+boot_samp <- observed_data %>% sample_n(size = 200, replace = TRUE)
+boot_samp %>% summarize(mean_percentage = mean(percentage))
+
+boot_means <- rep(NA, 500)
+for (i in 1:500){
+  boot_samp <- observed_data %>% sample_n(size = 200, replace = TRUE)
+  boot_means[i] <- as.numeric(boot_samp %>%
+                                summarize(mean_percentage = mean(percentage)))
+}
+boot_means <- data_frame(mean_percentage = boot_means)
+
+ggplot(boot_means, aes(x = mean_percentage)) + geom_histogram(bins = 30, colour = "Black", fill = "Orange") + labs(x = "Means from bootstrap samples", title = "Bootstrap Distribution for the Mean of Percent Usage")
+
+population_mean <- PER %>%
+  summarize(population_mean_percentage = mean(percentage))
+population_mean
+
+ggplot(boot_means, aes(x = mean_percentage)) + geom_histogram(bins = 30, colour = "Black", fill = "Blue") + geom_dotplot(data = population_mean, aes(x = population_mean_percentage), fill = "Red") + labs(x = "Means from Bootstrap Samples", title = "Bootstrap Distribution for the Mean of Percentage Usage")
+
+
+# Generate 100 bootstrap samples
+n_interval <- 100
+perc_25 <- rep(NA, n_interval)
+perc_975 <- rep(NA, n_interval)
+sample_size <- 200
+replications <- 500
+for (i in 1:n_interval){
+  observed_data <- PER %>%
+    sample_n(size = sample_size, replace = FALSE)
+  
+  boot_means <- rep(NA, replications)
+  for (j in 1:replications){
+    boot_samp <- observed_data %>%
+      sample_n(size = sample_size, replace = TRUE)
+    boot_means[j] <- as.numeric(boot_samp %>%
+                                  summarize(mean(percentage)))
+  }
+  
+  perc_25[i] <- quantile(boot_means, 0.025)
+  perc_975[i] <- quantile(boot_means, 0.975)
+  
+  print(c(i, perc_25[i], perc_975[i]))
+}
+
+```
+
+Relationship between life expectency and percentage
+```{r}
+life_percent <- inner_join(lifeexpect_cia2017, internet_population, by = "Country")
+
+ggplot(data = life_percent, aes(x = `(YEARS)`, y = percentage)) + geom_point() + stat_smooth(method = "lm", colour = "Red", se = TRUE) + labs(x = "Life Expectancy (in years)", y = "Percentage of Population Using Internet (%)", title = "Relationship Between Percentage of Population Using Internet and Life Expectancy")
+```
+
+CLASSIFICATION TREE ON LIFE EXPECTENCY AND HEALTH EXPENDITURE
+```{r}
+set.seed(2150)
+tree_df <- inner_join(lifeexpect_cia2017, healthexpend_cia2017, by = "Country")
+tree_df <- inner_join(tree_df, internet_population, by = "Country")
+
+tree_df$`Date of Information.x` <- NULL
+tree_df$`Date of Information.y` <- NULL
+tree_df <- tree_df %>%
+  rename(years = `(YEARS)`, gdp = `(% OF GDP)`) %>%
+  mutate(group = ifelse(percentage <=33, 'Low IU',ifelse(percentage > 33 & percentage <= 66, "Moderate IU", "High IU")))
+
+tree_df <- tree_df %>% sample_n(size = 92)
+
+
+ggplot(data = tree_df, aes(x = gdp, y = years, colour = group)) + geom_point() + stat_smooth(method = "lm", colour = "Red", se = FALSE) + labs(x = "Percent of GDP spent on Health(%)", y = "Life Expectancy (years)", title = "Classification of Internet usage using life expectency and Health Expenditure")
+
+# Create a classification tree 
+tree <- rpart(group ~ gdp + years, data = tree_df)
+plot(as.party(tree), type = "simple", gp = gpar(cex = 0.8))
+```
+
+Relationship between telephone lines and percentage
+```{r}
+tele_percentage <- inner_join(telephonelines_cia2017, internet_population, by="Country")
+tele_percentage <- tele_percentage %>%
+  rename(lines = `TELEPHONES - MAIN LINES IN USE`)
+
+#ggplot(data = tele_percentage, aes(x = lines, y = percentage)) + geom_point() + stat_smooth(method = #"lm", colour = "Red", se = TRUE) + xlim(0,1500000) + ylim(0,100)
+
+tele_percentage <- tele_percentage %>%
+  mutate(group = ifelse(lines <= 500000, "1 - Few lines", ifelse(lines > 500000 & lines <= 1000000, "2 - Moderate lines", "3 - Too many lines"))) %>%
+  filter (percentage <= 100) %>%
+  select(percentage, group, lines)
+
+ggplot(data = tele_percentage, aes(x = group, y = percentage, color = group)) + geom_boxplot() + labs(x = "Categories of Telephone Lines", y = "Percentage of Population using Internet", title = "Relationship between Percentage of Population Using Internet and Telephone Lines")
+```
+
+
+
+
+Note:
+According to a statistics article published by STATISTA (https://www.statista.com/statistics/266587/percentage-of-internet-users-by-age-groups-in-the-us/), most 
+
+Link to all datasets on World Factbook: https://www.cia.gov/library/publications/resources/the-world-factbook/rankorder/rankorderguide.html
+
+Link to definitions of words from Dataset:
+https://www.cia.gov/library/publications/resources/the-world-factbook/docs/notesanddefs.html
+
+- Data Wrangling (included)
+- Exploratory data analysis (included)
+- Plot and summary statistics (included)
+- Confidence Intervals (included)
+- Classification trees (included)
+- Regression models(included)
